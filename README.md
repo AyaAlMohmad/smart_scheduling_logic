@@ -1,58 +1,157 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Smart Scheduling Logic — نظام إدارة الدراسة والمهام الذكي
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A comprehensive Study & Task Management web application built with **Laravel + Blade**.
+The centerpiece is a **smart scheduling engine** that automatically distributes study
+sessions across the week based on subject difficulty, assignment/exam deadlines,
+weekly availability, and the student's logged daily energy level.
 
-## About Laravel
+تطبيق ويب متكامل لإدارة الدراسة والمهام مبني بـ Laravel وBlade. يتميز النظام
+بمحرك جدولة ذكي يوزع جلسات المذاكرة تلقائياً على أيام الأسبوع حسب صعوبة المواد،
+مواعيد تسليم الواجبات والاختبارات، أوقات التفرغ، ومستوى طاقة الطالب اليومية.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Features | الميزات
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- **Subjects (المواد الدراسية)** — CRUD with difficulty levels (low / medium / high) and priority.
+- **Assignments & Exams (الواجبات والاختبارات)** — deadlines, pending/completed status, due-soon tracking.
+- **Smart Scheduling (الجدولة الذكية)** — automatic weekly distribution of study sessions:
+  - hard subjects land on high-energy days,
+  - subjects with near deadlines get priority weighting,
+  - generated sessions never overlap existing ones (interval subtraction),
+  - auto-rescheduling to the next free slot when conflicts happen,
+  - conflict detection & bulk resolution across the week.
+- **Study Sessions (جلسات الدراسة)** — manual scheduling + statuses (scheduled, in_progress, completed, missed, rescheduled).
+- **Energy Tracker (تتبع الطاقة)** — one log per day; feeds the scheduling algorithm.
+- **Pomodoro Focus (وقت التركيز)** — log focused work sessions per subject.
+- **Notifications (الإشعارات)** — read/unread states, generated automatically on reschedules.
+- **Dashboard (لوحة التحكم)** — progress rate, pending vs completed tasks, weekly schedule summary, energy trend, focus minutes, and chart-ready JSON analytics.
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Tech Stack
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+| Layer | Technology |
+|---|---|
+| Framework | Laravel 12, PHP 8.3 |
+| Auth | Laravel Breeze (Blade stack) |
+| Database | MySQL (works on SQLite for dev/tests) |
+| Views | Blade (stub views ready for frontend integration) |
+| Tests | PHPUnit — 38 feature tests |
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+---
 
-## Agentic Development
+## Database Schema | بنية قاعدة البيانات
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```
+users ─┬─ subjects ─┬─ assignments_exams
+       │            ├─ study_sessions
+       │            └─ pomodoro_sessions
+       ├─ energy_logs        (unique per user+date)
+       ├─ notifications
+       └─ availability_slots (weekly free-time windows, day_of_week 0–6)
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+All tables cascade on user/subject deletion, with indexes on the hot query paths
+(`user_id + status + due_date`, `user_id + scheduled_date`, `user_id + is_read`).
 
-## Contributing
+---
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Smart Scheduling Algorithm | خوارزمية الجدولة
 
-## Code of Conduct
+`app/Services/SmartScheduleService.php`
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+1. **Subject weight** = `difficulty (1–3) × 2` + urgency bonus (+6 if due ≤ 2 days, +4 if ≤ 7 days).
+2. **Day ordering** — days are sorted by the user's logged `energy_level` (high → low).
+3. **Matching** — on each day, subjects whose difficulty ≤ the day's energy weight get a +10 match bonus, so hard subjects are scheduled on high-energy days first.
+4. **Slot filling** — each availability window is split into 60-minute sessions; occupied intervals (manual/completed sessions) are subtracted via interval arithmetic.
+5. **Conflict resolution** — overlapping sessions are detected and moved to the next free availability slot (up to 14 days ahead), and a notification is created.
 
-## Security Vulnerabilities
+```php
+$service->generateWeeklySchedule($user);          // توزيع ذكي لأسبوع كامل
+$service->rescheduleSession($session);            // نقل جلسة لأقرب وقت متاح
+$service->resolveConflicts($user);                // حل جميع التعارضات
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+---
+
+## Installation | التثبيت
+
+```bash
+git clone https://github.com/AyaAlMohmad/smart_scheduling_logic.git
+cd smart_scheduling_logic
+
+composer install
+npm install && npm run build
+
+cp .env.example .env
+php artisan key:generate
+
+# Configure your database in .env (MySQL or sqlite), then:
+php artisan migrate
+
+php artisan serve
+```
+
+Then register an account — everything lives under `/dashboard` and requires auth.
+
+---
+
+## Main Routes | أهم المسارات
+
+| Method | URI | Description |
+|---|---|---|
+| GET | `/dashboard` | Student overview + analytics |
+| resource | `/subjects` | Subjects CRUD |
+| resource | `/assignments` | Assignments/exams CRUD + `PATCH {id}/complete` |
+| GET/POST | `/schedule` | Weekly schedule view & manual session creation |
+| POST | `/schedule/generate` | Run the smart scheduler |
+| POST | `/schedule/{id}/reschedule` | Auto-move a session |
+| POST | `/schedule/resolve-conflicts` | Fix all overlapping sessions |
+| POST | `/schedule/availability` | Replace weekly availability windows |
+| GET/POST | `/pomodoro` | Focus session log |
+| GET/POST | `/energy` | Daily energy tracker |
+| GET | `/notifications` | Notification center |
+
+---
+
+## Project Structure | بنية المشروع
+
+```
+app/
+├── Http/
+│   ├── Controllers/   SubjectController, AssignmentController, ScheduleController,
+│   │                  DashboardController, PomodoroController,
+│   │                  NotificationController, EnergyLogController
+│   └── Requests/      10 Form Request classes (validation + ownership checks)
+├── Models/            Subject, AssignmentExam, StudySession, EnergyLog,
+│                      PomodoroSession, AppNotification, AvailabilitySlot
+└── Services/
+    └── SmartScheduleService.php   ← the smart scheduling engine
+```
+
+---
+
+## Testing | الاختبار
+
+```bash
+php artisan test        # 38 tests, 104 assertions
+```
+
+`tests/Feature/StudyAppTest.php` covers CRUD flows, validation, authorization
+boundaries (users can't attach tasks to other users' subjects), the smart
+scheduler end-to-end, rescheduling + notifications, energy upsert, and the
+dashboard stats.
+
+---
+
+## Notes for the Frontend Developer
+
+- Every controller returns Blade views with clearly-named variables; each stub
+  view documents the data it receives (see `dashboard.blade.php` for the full list).
+- The dashboard embeds chart-ready data in `<script id="dashboard-charts" type="application/json">`.
+- Replace stub views freely — controllers/routes/validation are stable contracts.
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+MIT
