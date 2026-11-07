@@ -15,7 +15,7 @@ the student's weekly free time, and their logged daily energy level.
 
 | Feature | الميزة | Details |
 |---|---|---|
-| Subjects | المواد الدراسية | CRUD with difficulty (`low` / `medium` / `high`), priority, and color |
+| Subjects | المواد الدراسية | CRUD with difficulty (`low` / `medium` / `high`), priority (1–5, default 3), and hex color |
 | Assignments & Exams | الواجبات والاختبارات | Type (`assignment` / `exam`), due date, `pending` / `completed` status, due-soon & overdue tracking |
 | Study Sessions | جلسات الدراسة | Manual scheduling with statuses: `scheduled`, `in_progress`, `completed`, `missed`, `rescheduled` |
 | Smart Scheduling | الجدولة الذكية | Automatic weekly plan, auto-rescheduling, conflict detection & resolution |
@@ -57,13 +57,17 @@ Located in `app/Services/SmartScheduleService.php`.
 4. **Slot filling** — every availability window is split into **60-minute** sessions.
    Time already taken by other sessions is removed first (interval subtraction);
    free gaps shorter than 30 minutes are ignored.
-5. **Re-generation** — previously generated `scheduled` sessions in that week are
+5. **Distribution** — sessions are assigned to the day's ordered subjects in
+   round-robin, so the highest-weighted subjects get the earliest slots and every
+   subject gets time.
+6. **Re-generation** — previously generated `scheduled` sessions in that week are
    replaced; completed / in-progress / other sessions are kept. Runs in a DB transaction.
 
 ### 2. Reschedule — `rescheduleSession($session)`
 
 Moves a session to the nearest free availability slot within the next **14 days**,
 keeping its duration, sets its status to `rescheduled`, and creates a notification.
+For today, times already passed are skipped (start is rounded up to the next 15 minutes).
 Returns `null` if no slot is found.
 
 ### 3. Resolve conflicts — `resolveConflicts($user)`
@@ -125,6 +129,7 @@ touch database/database.sqlite
 # Or set DB_CONNECTION=mysql and DB_* values in .env
 
 php artisan migrate
+php artisan db:seed   # optional: creates test@example.com / password
 
 npm install
 npm run build
@@ -133,6 +138,7 @@ php artisan serve
 ```
 
 Or run everything with one command: `composer run setup`.
+For development (server + Vite with hot reload): `composer run dev`.
 
 Open `http://localhost:8000`, register an account, and verify the email.
 All app pages require a logged-in, verified user.
